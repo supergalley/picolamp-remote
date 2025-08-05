@@ -1,24 +1,33 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Pico BLE Remote</title>
+  <title>Pico BLE Lamp Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-    button { font-size: 24px; padding: 20px; margin: 10px; width: 80%; }
+    body { font-family: sans-serif; text-align: center; padding: 20px; }
+    h1 { font-size: 24px; }
+    button { font-size: 20px; padding: 10px 30px; margin: 20px auto; }
+    input[type=range] { width: 80%; }
+    .slider-label { font-size: 18px; margin-top: 20px; }
   </style>
 </head>
 <body>
   <h1>BLE Lamp Remote</h1>
   <button onclick="connect()">🔗 Connect</button><br>
-  <button onclick="send('P')">⚡ Power</button><br>
-  <button onclick="send('W')">🔥 Warm</button><br>
-  <button onclick="send('C')">❄️ Cool</button>
+  <button onclick="togglePower()">⚡ Power</button>
+
+  <div class="slider-label">Warm Brightness 🌡️ <span id="warmVal">0</span></div>
+  <input type="range" id="warmSlider" min="0" max="255" value="0" oninput="updateSlider(this, 'warm')">
+
+  <div class="slider-label">Cool Brightness ❄️ <span id="coolVal">0</span></div>
+  <input type="range" id="coolSlider" min="0" max="255" value="0" oninput="updateSlider(this, 'cool')">
 
   <script>
     let bleDevice, bleCharacteristic;
     const serviceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const charUUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+    let warm = 0, cool = 0;
+    let lampOn = false;
 
     async function connect() {
       try {
@@ -31,17 +40,41 @@
         bleCharacteristic = await service.getCharacteristic(charUUID);
         alert("Connected to PicoLamp!");
       } catch (error) {
-        alert("Failed to connect: " + error);
+        alert("Connection failed: " + error);
       }
     }
 
-    async function send(char) {
-      if (!bleCharacteristic) {
-        alert("Not connected!");
-        return;
-      }
-      const data = new TextEncoder().encode(char);
+    async function sendValues() {
+      if (!bleCharacteristic) return;
+      const data = new Uint8Array([warm, cool]);
       await bleCharacteristic.writeValue(data);
+    }
+
+    function updateSlider(slider, type) {
+      const value = parseInt(slider.value);
+      if (type === 'warm') {
+        warm = value;
+        document.getElementById('warmVal').textContent = warm;
+      } else {
+        cool = value;
+        document.getElementById('coolVal').textContent = cool;
+      }
+      lampOn = (warm > 0 || cool > 0);
+      sendValues();
+    }
+
+    function togglePower() {
+      if (lampOn) {
+        warm = 0; cool = 0;
+      } else {
+        warm = 128; cool = 128;
+      }
+      document.getElementById('warmSlider').value = warm;
+      document.getElementById('coolSlider').value = cool;
+      document.getElementById('warmVal').textContent = warm;
+      document.getElementById('coolVal').textContent = cool;
+      lampOn = !lampOn;
+      sendValues();
     }
   </script>
 </body>
