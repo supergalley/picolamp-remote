@@ -22,11 +22,14 @@
   <div class="slider-label">Cool Brightness ❄️ <span id="coolVal">0</span></div>
   <input type="range" id="coolSlider" min="0" max="255" value="0" oninput="updateSlider(this, 'cool')">
 
+  <div class="slider-label">Backlight 🔆 <span id="backlightVal">153</span></div>
+  <input type="range" id="backlightSlider" min="0" max="255" value="153" oninput="updateSlider(this, 'backlight')">
+
   <script>
     let bleDevice, bleCharacteristic;
     const serviceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const charUUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-    let warm = 0, cool = 0;
+    let warm = 0, cool = 0, backlight = 153;
     let lampOn = false;
 
     async function connect() {
@@ -39,6 +42,16 @@
         const service = await server.getPrimaryService(serviceUUID);
         bleCharacteristic = await service.getCharacteristic(charUUID);
         alert("Connected to PicoLamp!");
+
+        // Reset sliders to default values on connect
+        warm = 0; cool = 0; backlight = 153;
+        document.getElementById('warmSlider').value = warm;
+        document.getElementById('coolSlider').value = cool;
+        document.getElementById('backlightSlider').value = backlight;
+        document.getElementById('warmVal').textContent = warm;
+        document.getElementById('coolVal').textContent = cool;
+        document.getElementById('backlightVal').textContent = backlight;
+
         sendValues();
       } catch (error) {
         alert("Connection failed: " + error);
@@ -47,7 +60,7 @@
 
     async function sendValues() {
       if (!bleCharacteristic) return;
-      const data = new Uint8Array([warm, cool]);
+      const data = new Uint8Array([warm, cool, backlight]);
       await bleCharacteristic.writeValue(data);
     }
 
@@ -56,10 +69,14 @@
       if (type === 'warm') {
         warm = value;
         document.getElementById('warmVal').textContent = warm;
-      } else {
+      } else if (type === 'cool') {
         cool = value;
         document.getElementById('coolVal').textContent = cool;
+      } else if (type === 'backlight') {
+        backlight = value;
+        document.getElementById('backlightVal').textContent = backlight;
       }
+
       lampOn = (warm > 0 || cool > 0);
       sendValues();
     }
