@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pico BLE Remote</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    button { font-size: 24px; padding: 20px; margin: 10px; width: 80%; }
+  </style>
+</head>
+<body>
+  <h1>BLE Lamp Remote</h1>
+  <button onclick="connect()">🔗 Connect</button><br>
+  <button onclick="send('P')">⚡ Power</button><br>
+  <button onclick="send('W')">🔥 Warm</button><br>
+  <button onclick="send('C')">❄️ Cool</button>
+
+  <script>
+    let bleDevice, bleCharacteristic;
+    const serviceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const charUUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+    async function connect() {
+      try {
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: 'PicoLamp' }],
+          optionalServices: [serviceUUID]
+        });
+        const server = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(serviceUUID);
+        bleCharacteristic = await service.getCharacteristic(charUUID);
+        alert("Connected to PicoLamp!");
+      } catch (error) {
+        alert("Failed to connect: " + error);
+      }
+    }
+
+    async function send(char) {
+      if (!bleCharacteristic) {
+        alert("Not connected!");
+        return;
+      }
+      const data = new TextEncoder().encode(char);
+      await bleCharacteristic.writeValue(data);
+    }
+  </script>
+</body>
+</html>
