@@ -39,6 +39,7 @@
         const service = await server.getPrimaryService(serviceUUID);
         bleCharacteristic = await service.getCharacteristic(charUUID);
         alert("Connected to PicoLamp!");
+        sendValues();
       } catch (error) {
         alert("Connection failed: " + error);
       }
