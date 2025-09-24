@@ -4,96 +4,177 @@
   <title>Pico BLE Lamp Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; }
-    h1 { font-size: 24px; }
-    button { font-size: 20px; padding: 10px 30px; margin: 20px auto; }
-    input[type=range] { width: 80%; }
-    .slider-label { font-size: 18px; margin-top: 20px; }
+    body { font-family: system-ui, sans-serif; text-align: center; padding: 20px; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    .status { font-size: 14px; opacity: 0.8; margin-bottom: 16px; }
+    button { font-size: 18px; padding: 10px 24px; margin: 10px 6px; }
+    .slider-wrap { margin: 18px auto; width: 90%; max-width: 520px; text-align: left; }
+    .slider-wrap label { display: flex; justify-content: space-between; font-size: 16px; }
+    .slider-wrap input[type=range] { width: 100%; }
+    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#eee; font-size:12px; }
   </style>
 </head>
 <body>
-  <h1>BLE Lamp Remote</h1>
-  <button onclick="connect()">🔗 Connect</button><br>
-  <button onclick="togglePower()">⚡ Power</button>
+  <h1>PicoLamp Remote</h1>
+  <div class="status">Device: <span id="devStatus">Not connected</span></div>
+  <div class="row">
+    <button id="btnConnect">🔗 Connect</button>
+    <button id="btnPower">⚡ Power</button>
+  </div>
 
-  <div class="slider-label">Warm Brightness 🌡️ <span id="warmVal">0</span></div>
-  <input type="range" id="warmSlider" min="0" max="255" value="0" oninput="updateSlider(this, 'warm')">
+  <div class="slider-wrap">
+    <label>Warm Brightness 🌡️ <span id="warmVal" class="pill">0</span></label>
+    <input type="range" id="warmSlider" min="0" max="255" value="0">
+  </div>
 
-  <div class="slider-label">Cool Brightness ❄️ <span id="coolVal">0</span></div>
-  <input type="range" id="coolSlider" min="0" max="255" value="0" oninput="updateSlider(this, 'cool')">
+  <div class="slider-wrap">
+    <label>Cool Brightness ❄️ <span id="coolVal" class="pill">0</span></label>
+    <input type="range" id="coolSlider" min="0" max="255" value="0">
+  </div>
 
-  <div class="slider-label">Backlight 🔆 <span id="backlightVal">153</span></div>
-  <input type="range" id="backlightSlider" min="0" max="255" value="153" oninput="updateSlider(this, 'backlight')">
+  <div class="slider-wrap">
+    <label>Backlight 🔆 <span id="backlightVal" class="pill">153</span></label>
+    <input type="range" id="backlightSlider" min="0" max="255" value="153">
+  </div>
 
   <script>
-    let bleDevice, bleCharacteristic;
-    const serviceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-    const charUUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-    let warm = 0, cool = 0, backlight = 153;
-    let lampOn = false;
+    // BLE UUIDs (Nordic UART RX characteristic for WRITE)
+    const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const CHAR_UUID    = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 
+    // Elements
+    const devStatus = document.getElementById('devStatus');
+    const btnConnect = document.getElementById('btnConnect');
+    const btnPower   = document.getElementById('btnPower');
+
+    const warmSlider = document.getElementById('warmSlider');
+    const coolSlider = document.getElementById('coolSlider');
+    const backlightSlider = document.getElementById('backlightSlider');
+
+    const warmVal = document.getElementById('warmVal');
+    const coolVal = document.getElementById('coolVal');
+    const backlightVal = document.getElementById('backlightVal');
+
+    // Runtime state
+    let bleDevice = null;
+    let bleCharacteristic = null;
+
+    // --- Persistence helpers ---
+    const LS_KEYS = {
+      warm: 'picolamp_warm',
+      cool: 'picolamp_cool',
+      back: 'picolamp_backlight'
+    };
+
+    function loadSaved() {
+      const w = parseInt(localStorage.getItem(LS_KEYS.warm) ?? '0', 10);
+      const c = parseInt(localStorage.getItem(LS_KEYS.cool) ?? '0', 10);
+      const b = parseInt(localStorage.getItem(LS_KEYS.back) ?? '153', 10);
+      setUI(w, c, b);
+    }
+
+    function saveCurrent() {
+      localStorage.setItem(LS_KEYS.warm, String(warmSlider.value));
+      localStorage.setItem(LS_KEYS.cool, String(coolSlider.value));
+      localStorage.setItem(LS_KEYS.back, String(backlightSlider.value));
+    }
+
+    function setUI(w, c, b) {
+      warmSlider.value = clamp255(w);
+      coolSlider.value = clamp255(c);
+      backlightSlider.value = clamp255(b);
+      warmVal.textContent = warmSlider.value;
+      coolVal.textContent = coolSlider.value;
+      backlightVal.textContent = backlightSlider.value;
+    }
+
+    function clamp255(v) {
+      v = Number(v) || 0;
+      if (v < 0) v = 0;
+      if (v > 255) v = 255;
+      return v;
+    }
+
+    // --- BLE helpers ---
     async function connect() {
       try {
         bleDevice = await navigator.bluetooth.requestDevice({
           filters: [{ name: 'PicoLamp' }],
-          optionalServices: [serviceUUID]
+          optionalServices: [SERVICE_UUID],
         });
+
+        devStatus.textContent = 'Connecting...';
         const server = await bleDevice.gatt.connect();
-        const service = await server.getPrimaryService(serviceUUID);
-        bleCharacteristic = await service.getCharacteristic(charUUID);
-        alert("Connected to PicoLamp!");
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        bleCharacteristic = await service.getCharacteristic(CHAR_UUID);
+        devStatus.textContent = 'Connected ✔';
 
-        // Reset sliders to default values on connect
-        warm = 0; cool = 0; backlight = 153;
-        document.getElementById('warmSlider').value = warm;
-        document.getElementById('coolSlider').value = cool;
-        document.getElementById('backlightSlider').value = backlight;
-        document.getElementById('warmVal').textContent = warm;
-        document.getElementById('coolVal').textContent = cool;
-        document.getElementById('backlightVal').textContent = backlight;
-
+        // On connect, push the last-saved (or defaulted) values immediately
         sendValues();
-      } catch (error) {
-        alert("Connection failed: " + error);
+
+        // If device disconnects, update UI
+        bleDevice.addEventListener('gattserverdisconnected', () => {
+          devStatus.textContent = 'Disconnected';
+          bleCharacteristic = null;
+        });
+      } catch (e) {
+        devStatus.textContent = 'Connect failed';
+        alert('Connection failed: ' + e);
       }
     }
 
     async function sendValues() {
       if (!bleCharacteristic) return;
-      const data = new Uint8Array([warm, cool, backlight]);
-      await bleCharacteristic.writeValue(data);
+      const buffer = new Uint8Array([
+        clamp255(warmSlider.value),
+        clamp255(coolSlider.value),
+        clamp255(backlightSlider.value),
+      ]);
+      try {
+        await bleCharacteristic.writeValue(buffer);
+      } catch (e) {
+        // Ignore transient write errors (e.g., during disconnect)
+      }
     }
 
-    function updateSlider(slider, type) {
-      const value = parseInt(slider.value);
-      if (type === 'warm') {
-        warm = value;
-        document.getElementById('warmVal').textContent = warm;
-      } else if (type === 'cool') {
-        cool = value;
-        document.getElementById('coolVal').textContent = cool;
-      } else if (type === 'backlight') {
-        backlight = value;
-        document.getElementById('backlightVal').textContent = backlight;
-      }
-
-      lampOn = (warm > 0 || cool > 0);
+    // --- UI events (save + send) ---
+    function onSliderInput() {
+      warmVal.textContent = warmSlider.value;
+      coolVal.textContent = coolSlider.value;
+      backlightVal.textContent = backlightSlider.value;
+      saveCurrent();
       sendValues();
     }
 
     function togglePower() {
-      if (lampOn) {
-        warm = 0; cool = 0;
+      const w = parseInt(warmSlider.value, 10);
+      const c = parseInt(coolSlider.value, 10);
+      const isOn = (w > 0 || c > 0);
+
+      if (isOn) {
+        // Save current levels before turning off
+        saveCurrent();
+        setUI(0, 0, backlightSlider.value);
       } else {
-        warm = 128; cool = 128;
+        // Restore last saved (defaults if none)
+        const wLast = parseInt(localStorage.getItem(LS_KEYS.warm) ?? '153', 10);
+        const cLast = parseInt(localStorage.getItem(LS_KEYS.cool) ?? '153', 10);
+        setUI(wLast, cLast, backlightSlider.value);
       }
-      document.getElementById('warmSlider').value = warm;
-      document.getElementById('coolSlider').value = cool;
-      document.getElementById('warmVal').textContent = warm;
-      document.getElementById('coolVal').textContent = cool;
-      lampOn = !lampOn;
+      saveCurrent();
       sendValues();
     }
+
+    // --- Wire up events ---
+    btnConnect.addEventListener('click', connect);
+    btnPower.addEventListener('click', togglePower);
+    warmSlider.addEventListener('input', onSliderInput);
+    coolSlider.addEventListener('input', onSliderInput);
+    backlightSlider.addEventListener('input', onSliderInput);
+
+    // Initialize from saved values on page load
+    loadSaved();
   </script>
 </body>
 </html>
